@@ -26,6 +26,9 @@ impl DesktopDriver for WaylandDriver {
         _click_count: u32,
         _button: MouseButton,
         _scroll_delta: Option<(i32, i32)>,
+        _target_app: Option<&str>,
+        _window_id: Option<u64>,
+        _coordinate_space: Option<&str>,
     ) -> Result<(), DriverError> {
         // libei emulated input / uinput evdev
         Ok(())
@@ -37,6 +40,8 @@ impl DesktopDriver for WaylandDriver {
         _text: Option<&str>,
         _key: Option<&str>,
         _modifiers: &[String],
+        _target_app: Option<&str>,
+        _window_id: Option<u64>,
     ) -> Result<(), DriverError> {
         // libei emulated input / uinput evdev
         Ok(())
@@ -63,8 +68,14 @@ impl DesktopDriver for WaylandDriver {
             title: app_identifier.to_string(),
             bounds: crate::utils::coordinates::Rect { x: 0.0, y: 0.0, width: 800.0, height: 600.0 },
             is_active: true,
-            pid: 1000,
+            pid: 1,
         })
+    }
+
+    async fn terminate_app(&self, app_identifier: &str) -> Result<(), DriverError> {
+        let _ = std::process::Command::new("pkill").arg("-f").arg(app_identifier).status();
+        Ok(())
+    }
     }
 
     async fn get_active_window(&self) -> Result<WindowInfo, DriverError> {
@@ -92,5 +103,34 @@ impl DesktopDriver for WaylandDriver {
                 "XDG Desktop Portal: Active".to_string(),
             ],
         })
+    }
+
+    async fn create_virtual_display(&self, width: u32, height: u32, name: Option<&str>) -> Result<DisplayInfo, DriverError> {
+        let display_name = name.unwrap_or("wayland-virtual-0");
+        Ok(DisplayInfo {
+            display_id: 99,
+            name: display_name.to_string(),
+            width,
+            height,
+            is_virtual: true,
+            is_main: false,
+            refresh_rate: 60.0,
+        })
+    }
+
+    async fn destroy_virtual_display(&self, _display_id: u32) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    async fn list_displays(&self) -> Result<Vec<DisplayInfo>, DriverError> {
+        Ok(vec![DisplayInfo {
+            display_id: 1,
+            name: "Wayland-Output-1".to_string(),
+            width: 1920,
+            height: 1080,
+            is_virtual: false,
+            is_main: true,
+            refresh_rate: 60.0,
+        }])
     }
 }

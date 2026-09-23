@@ -96,6 +96,8 @@ pub fn get_calculator_display_value() -> Result<String, DriverError> {
         None,
         Some("c"),
         &["cmd".to_string()],
+        Some("Calculator"),
+        None,
     );
     std::thread::sleep(std::time::Duration::from_millis(200));
 

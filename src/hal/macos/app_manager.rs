@@ -7,27 +7,59 @@ use core_foundation::string::CFString;
 use core_foundation_sys::dictionary::CFDictionaryGetValue;
 use core_graphics::display::*;
 use std::ffi::c_void;
+use objc::{sel, sel_impl};
 
-pub fn launch_or_activate_app(app_identifier: &str) -> Result<(), DriverError> {
-    // 1. Explicitly activate via AppleScript to guarantee OS focus switch
-    let script = format!("tell application \"{}\" to activate", app_identifier);
-    let _ = Command::new("osascript").args(["-e", &script]).status();
-
-    // 2. Fallback to open -a if needed
-    let _ = Command::new("open").args(["-a", app_identifier]).status();
-
-    // 3. Wait until the application is confirmed frontmost by System Events
-    let target_lower = app_identifier.to_lowercase();
-    for _ in 0..15 {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        if let Ok(front) = get_frontmost_app_name() {
-            if front.to_lowercase().contains(&target_lower) || target_lower.contains(&front.to_lowercase()) {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                return Ok(());
+pub fn activate_pid(pid: i32) {
+    if pid > 0 {
+        unsafe {
+            if let Some(cls) = objc::runtime::Class::get("NSRunningApplication") {
+                let app: cocoa::base::id = objc::msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+                if !app.is_null() {
+                    let _: bool = objc::msg_send![app, activateWithOptions: 1usize << 1];
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                }
             }
         }
     }
+}
 
+pub fn launch_or_activate_app(app_identifier: &str) -> Result<(), DriverError> {
+    // 1. If process already exists, activate directly via native Cocoa NSRunningApplication
+    if let Ok(win) = find_window_for_app(Some(app_identifier), None) {
+        if win.pid > 0 {
+            activate_pid(win.pid);
+            return Ok(());
+        }
+    }
+
+    // 2. Otherwise launch or activate via open -a
+    let _ = Command::new("open").args(["-a", app_identifier]).status();
+
+    // 3. Fallback to AppleScript activation if needed
+    let script = format!("tell application \"{}\" to activate", app_identifier);
+    let _ = Command::new("osascript").args(["-e", &script]).status();
+
+    // 4. Wait until the window is available
+    let _ = find_window_for_app(Some(app_identifier), None)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    Ok(())
+}
+
+pub fn terminate_app(app_identifier: &str) -> Result<(), DriverError> {
+    if let Ok(win) = find_window_for_app(Some(app_identifier), None) {
+        if win.pid > 0 {
+            unsafe {
+                if let Some(cls) = objc::runtime::Class::get("NSRunningApplication") {
+                    let app: cocoa::base::id = objc::msg_send![cls, runningApplicationWithProcessIdentifier: win.pid];
+                    if !app.is_null() {
+                        let _: bool = objc::msg_send![app, terminate];
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -137,7 +169,7 @@ fn find_window_once(app_name: Option<&str>, window_id: Option<u64>) -> Result<Wi
     }
 }
 
-unsafe fn get_dict_number(dict: core_foundation_sys::dictionary::CFDictionaryRef, key_name: &str) -> Option<i64> {
+pub unsafe fn get_dict_number(dict: core_foundation_sys::dictionary::CFDictionaryRef, key_name: &str) -> Option<i64> {
     let key = CFString::new(key_name);
     let val_ptr = CFDictionaryGetValue(dict, key.as_concrete_TypeRef() as *const c_void);
     if val_ptr.is_null() {
@@ -147,7 +179,7 @@ unsafe fn get_dict_number(dict: core_foundation_sys::dictionary::CFDictionaryRef
     num.to_i64()
 }
 
-unsafe fn get_dict_string(dict: core_foundation_sys::dictionary::CFDictionaryRef, key_name: &str) -> Option<String> {
+pub unsafe fn get_dict_string(dict: core_foundation_sys::dictionary::CFDictionaryRef, key_name: &str) -> Option<String> {
     let key = CFString::new(key_name);
     let val_ptr = CFDictionaryGetValue(dict, key.as_concrete_TypeRef() as *const c_void);
     if val_ptr.is_null() {

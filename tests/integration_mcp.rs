@@ -36,7 +36,7 @@ async fn test_mcp_initialize_and_tools_list() {
     let list_res = dispatcher.dispatch(list_req).await;
     assert!(list_res.error.is_none());
     let tools = list_res.result.unwrap()["tools"].as_array().unwrap().clone();
-    assert_eq!(tools.len(), 6);
+    assert_eq!(tools.len(), 9);
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"desktop_capture_screen"));
@@ -45,6 +45,9 @@ async fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"desktop_inspect_ui"));
     assert!(tool_names.contains(&"desktop_manage_app"));
     assert!(tool_names.contains(&"desktop_doctor"));
+    assert!(tool_names.contains(&"desktop_create_virtual_display"));
+    assert!(tool_names.contains(&"desktop_destroy_virtual_display"));
+    assert!(tool_names.contains(&"desktop_list_displays"));
 }
 
 #[tokio::test]

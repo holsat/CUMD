@@ -8,10 +8,8 @@ use desktop_mcp::server::protocol::JsonRpcRequest;
 #[cfg(target_os = "macos")]
 use desktop_mcp::hal::macos::MacosDriver;
 
-async fn click_button(name: &str, rel_x: f64, rel_y: f64, dispatcher: &McpDispatcher, bx: f64, by: f64) {
-    let abs_x = bx + rel_x;
-    let abs_y = by + rel_y;
-    println!("[E2E Stage 1] Mouse clicking '{}' at ({:.1}, {:.1}) via desktop_mouse_action...", name, abs_x, abs_y);
+async fn click_button(name: &str, rel_x: f64, rel_y: f64, dispatcher: &McpDispatcher) {
+    println!("[E2E Stage 1] Mouse clicking '{}' at window relative ({:.1}, {:.1}) via desktop_mouse_action...", name, rel_x, rel_y);
     let req = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: Some(serde_json::json!(100)),
@@ -20,7 +18,8 @@ async fn click_button(name: &str, rel_x: f64, rel_y: f64, dispatcher: &McpDispat
             "name": "desktop_mouse_action",
             "arguments": {
                 "action": "click",
-                "coordinate": { "x": abs_x, "y": abs_y },
+                "coordinate": { "x": rel_x, "y": rel_y },
+                "coordinate_space": "window_relative",
                 "target_app": "Calculator"
             }
         })),
@@ -108,18 +107,18 @@ async fn test_calculator_algebraic_calculation() {
     assert!(img_height < 1000, "Screenshot appears to be full screen rather than isolated window: height={}", img_height);
 
     println!("[E2E Stage 1] 3. Clear existing calculation with 'C' button click...");
-    click_button("C", 92.0, 165.0, &dispatcher, bx, by).await;
+    click_button("C", 92.0, 165.0, &dispatcher).await;
 
     println!("[E2E Stage 1] 4. Clicking expression buttons: 45 * 2 + 38 = ...");
     // (45 * 2) + 38 =
-    click_button("4", 38.0, 275.0, &dispatcher, bx, by).await;
-    click_button("5", 92.0, 275.0, &dispatcher, bx, by).await;
-    click_button("×", 200.0, 220.0, &dispatcher, bx, by).await;
-    click_button("2", 92.0, 330.0, &dispatcher, bx, by).await;
-    click_button("+", 200.0, 330.0, &dispatcher, bx, by).await;
-    click_button("3", 146.0, 330.0, &dispatcher, bx, by).await;
-    click_button("8", 92.0, 220.0, &dispatcher, bx, by).await;
-    click_button("=", 200.0, 385.0, &dispatcher, bx, by).await;
+    click_button("4", 38.0, 275.0, &dispatcher).await;
+    click_button("5", 92.0, 275.0, &dispatcher).await;
+    click_button("×", 200.0, 220.0, &dispatcher).await;
+    click_button("2", 92.0, 330.0, &dispatcher).await;
+    click_button("+", 200.0, 330.0, &dispatcher).await;
+    click_button("3", 146.0, 330.0, &dispatcher).await;
+    click_button("8", 92.0, 220.0, &dispatcher).await;
+    click_button("=", 200.0, 385.0, &dispatcher).await;
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

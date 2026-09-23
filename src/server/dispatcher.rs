@@ -105,9 +105,12 @@ impl McpDispatcher {
                 let coord = args.get("coordinate").ok_or("Missing coordinate")?;
                 let x = coord.get("x").and_then(|v| v.as_f64()).ok_or("Missing x coordinate")?;
                 let y = coord.get("y").and_then(|v| v.as_f64()).ok_or("Missing y coordinate")?;
+                let target_app = args.get("target_app").and_then(|v| v.as_str());
+                let window_id = args.get("window_id").and_then(|v| v.as_u64());
+                let coordinate_space = args.get("coordinate_space").and_then(|v| v.as_str());
 
-                if let Some(target_app) = args.get("target_app").and_then(|v| v.as_str()) {
-                    self.policy.validate_app(target_app).map_err(|e| e.to_string())?;
+                if let Some(app) = target_app {
+                    self.policy.validate_app(app).map_err(|e| e.to_string())?;
                 }
 
                 let action = match action_str {
@@ -127,19 +130,57 @@ impl McpDispatcher {
                 };
 
                 let click_count = args.get("click_count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+                let scroll_delta = args.get("scroll_delta").and_then(|v| {
+                    let dx = v.get("dx").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+                    let dy = v.get("dy").and_then(|y| y.as_i64()).unwrap_or(0) as i32;
+                    Some((dx, dy))
+                });
 
-                self.driver.mouse_action(action, x, y, click_count, button, None).await
-                    .map_err(|e| e.to_string())?;
+                let (final_x, final_y, effective_coord_space) = if coordinate_space == Some("normalized_1000") {
+                    let (w, h) = if let Ok(win) = self.driver.get_active_window().await {
+                        (win.bounds.width, win.bounds.height)
+                    } else {
+                        (1920.0, 1080.0)
+                    };
+                    ((x / 1000.0) * w, (y / 1000.0) * h, Some("window_relative"))
+                } else {
+                    (x, y, coordinate_space)
+                };
 
-                Ok(serde_json::json!({ "status": "success", "action": action_str, "x": x, "y": y }))
+                self.driver.mouse_action(
+                    action,
+                    final_x,
+                    final_y,
+                    click_count,
+                    button,
+                    scroll_delta,
+                    target_app,
+                    window_id,
+                    effective_coord_space,
+                ).await.map_err(|e| e.to_string())?;
+
+                let mut res = serde_json::json!({
+                    "status": "success",
+                    "action": action_str,
+                    "x": final_x,
+                    "y": final_y
+                });
+                if args.get("include_screenshot").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if let Ok(img) = self.driver.capture_window(target_app, window_id).await {
+                        res["screenshot"] = serde_json::to_value(img).unwrap();
+                    }
+                }
+                Ok(res)
             }
             "desktop_keyboard_action" => {
                 let action_str = args.get("action").and_then(|v| v.as_str()).unwrap_or("type");
                 let text = args.get("text").and_then(|v| v.as_str());
                 let key = args.get("key").and_then(|v| v.as_str());
+                let target_app = args.get("target_app").and_then(|v| v.as_str());
+                let window_id = args.get("window_id").and_then(|v| v.as_u64());
 
-                if let Some(target_app) = args.get("target_app").and_then(|v| v.as_str()) {
-                    self.policy.validate_app(target_app).map_err(|e| e.to_string())?;
+                if let Some(app) = target_app {
+                    self.policy.validate_app(app).map_err(|e| e.to_string())?;
                 }
 
                 let modifiers: Vec<String> = args.get("modifiers")
@@ -150,13 +191,27 @@ impl McpDispatcher {
                 let action = match action_str {
                     "hotkey" => KeyAction::Hotkey,
                     "press_key" => KeyAction::PressKey,
+                    "key_down" => KeyAction::KeyDown,
+                    "key_up" => KeyAction::KeyUp,
                     _ => KeyAction::Type,
                 };
 
-                self.driver.keyboard_action(action, text, key, &modifiers).await
-                    .map_err(|e| e.to_string())?;
+                self.driver.keyboard_action(
+                    action,
+                    text,
+                    key,
+                    &modifiers,
+                    target_app,
+                    window_id,
+                ).await.map_err(|e| e.to_string())?;
 
-                Ok(serde_json::json!({ "status": "success", "action": action_str }))
+                let mut res = serde_json::json!({ "status": "success", "action": action_str });
+                if args.get("include_screenshot").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if let Ok(img) = self.driver.capture_window(target_app, window_id).await {
+                        res["screenshot"] = serde_json::to_value(img).unwrap();
+                    }
+                }
+                Ok(res)
             }
             "desktop_inspect_ui" => {
                 let app = args.get("app_identifier").and_then(|v| v.as_str());
@@ -174,19 +229,50 @@ impl McpDispatcher {
             "desktop_manage_app" => {
                 let app_id = args.get("app_identifier").and_then(|v| v.as_str())
                     .ok_or("Missing app_identifier")?;
+                let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("launch");
 
                 self.policy.validate_app(app_id).map_err(|e| e.to_string())?;
 
-                let win = self.driver.launch_or_focus_app(app_id).await
-                    .map_err(|e| e.to_string())?;
-
-                Ok(serde_json::to_value(win).unwrap())
+                if action == "quit" {
+                    self.driver.terminate_app(app_id).await.map_err(|e| e.to_string())?;
+                    Ok(serde_json::json!({ "status": "success", "action": "quit", "app_identifier": app_id }))
+                } else {
+                    let win = self.driver.launch_or_focus_app(app_id).await
+                        .map_err(|e| e.to_string())?;
+                    Ok(serde_json::to_value(win).unwrap())
+                }
             }
             "desktop_doctor" => {
                 let report = self.driver.check_permissions().await
                     .map_err(|e| e.to_string())?;
 
                 Ok(serde_json::to_value(report).unwrap())
+            }
+            "desktop_create_virtual_display" => {
+                let width = args.get("width").and_then(|v| v.as_u64()).unwrap_or(1920) as u32;
+                let height = args.get("height").and_then(|v| v.as_u64()).unwrap_or(1080) as u32;
+                let name = args.get("name").and_then(|v| v.as_str());
+
+                let display = self.driver.create_virtual_display(width, height, name).await
+                    .map_err(|e| e.to_string())?;
+
+                Ok(serde_json::to_value(display).unwrap())
+            }
+            "desktop_destroy_virtual_display" => {
+                let display_id = args.get("display_id")
+                    .and_then(|v| v.as_u64())
+                    .ok_or("Missing display_id")? as u32;
+
+                self.driver.destroy_virtual_display(display_id).await
+                    .map_err(|e| e.to_string())?;
+
+                Ok(serde_json::json!({ "status": "success", "destroyed_display_id": display_id }))
+            }
+            "desktop_list_displays" => {
+                let displays = self.driver.list_displays().await
+                    .map_err(|e| e.to_string())?;
+
+                Ok(serde_json::to_value(displays).unwrap())
             }
             other => Err(format!("Unknown tool: {}", other)),
         }

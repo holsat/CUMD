@@ -106,6 +106,17 @@ pub struct DoctorReport {
     pub details: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayInfo {
+    pub display_id: u32,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub is_virtual: bool,
+    pub is_main: bool,
+    pub refresh_rate: f64,
+}
+
 #[async_trait]
 pub trait DesktopDriver: Send + Sync {
     async fn capture_window(&self, app_id: Option<&str>, window_id: Option<u64>) -> Result<ImageBuffer, DriverError>;
@@ -117,6 +128,9 @@ pub trait DesktopDriver: Send + Sync {
         click_count: u32,
         button: MouseButton,
         scroll_delta: Option<(i32, i32)>,
+        target_app: Option<&str>,
+        window_id: Option<u64>,
+        coordinate_space: Option<&str>,
     ) -> Result<(), DriverError>;
     async fn keyboard_action(
         &self,
@@ -124,9 +138,15 @@ pub trait DesktopDriver: Send + Sync {
         text: Option<&str>,
         key: Option<&str>,
         modifiers: &[String],
+        target_app: Option<&str>,
+        window_id: Option<u64>,
     ) -> Result<(), DriverError>;
     async fn inspect_ui(&self, app_id: Option<&str>, max_depth: u32) -> Result<AccessibilityNode, DriverError>;
     async fn launch_or_focus_app(&self, app_identifier: &str) -> Result<WindowInfo, DriverError>;
+    async fn terminate_app(&self, app_identifier: &str) -> Result<(), DriverError>;
     async fn get_active_window(&self) -> Result<WindowInfo, DriverError>;
     async fn check_permissions(&self) -> Result<DoctorReport, DriverError>;
+    async fn create_virtual_display(&self, width: u32, height: u32, name: Option<&str>) -> Result<DisplayInfo, DriverError>;
+    async fn destroy_virtual_display(&self, display_id: u32) -> Result<(), DriverError>;
+    async fn list_displays(&self) -> Result<Vec<DisplayInfo>, DriverError>;
 }
