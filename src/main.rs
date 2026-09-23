@@ -30,6 +30,11 @@ enum Commands {
     Run,
     /// Run diagnostic checks on OS permissions and displays
     Doctor,
+    /// Interactive setup & permission verification guide for macOS / Linux
+    Setup {
+        #[arg(long, default_value_t = false)]
+        install_service: bool,
+    },
     /// Generate a default config file
     InitConfig {
         #[arg(short, long, default_value = "config.toml")]
@@ -63,6 +68,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Running desktop-mcp-daemon doctor diagnostic checks...\n");
             let report = driver.check_permissions().await?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Commands::Setup { install_service } => {
+            println!("=========================================================");
+            println!("  CUMD (desktop-mcp-daemon) System Permission & Setup    ");
+            println!("=========================================================\n");
+
+            #[cfg(target_os = "macos")]
+            {
+                let mut report = driver.check_permissions().await?;
+
+                // 1. Check Accessibility
+                if report.accessibility_granted {
+                    println!("[✓] macOS Accessibility: GRANTED");
+                } else {
+                    println!("[!] macOS Accessibility: MISSING");
+                    println!("    To enable synthetic mouse/keyboard input and UI inspection,");
+                    println!("    grant Accessibility to this terminal or application.");
+                    println!("    Opening System Settings > Privacy & Security > Accessibility...\n");
+
+                    let _ = std::process::Command::new("open")
+                        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                        .status();
+
+                    println!("    Waiting for Accessibility permission to be enabled...");
+                    for _ in 0..15 {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        report = driver.check_permissions().await?;
+                        if report.accessibility_granted {
+                            break;
+                        }
+                    }
+
+                    if report.accessibility_granted {
+                        println!("[✓] macOS Accessibility: GRANTED and CONFIRMED!\n");
+                    } else {
+                        println!("[X] Still waiting for Accessibility. Please toggle it ON in System Settings.\n");
+                    }
+                }
+
+                // 2. Check Screen Recording
+                if report.screen_recording_granted {
+                    println!("[✓] macOS Screen Recording: GRANTED");
+                } else {
+                    println!("[!] macOS Screen Recording: MISSING");
+                    println!("    Opening System Settings > Privacy & Security > Screen Recording...\n");
+                    let _ = std::process::Command::new("open")
+                        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                        .status();
+                }
+
+                // 3. Optional service installation
+                if install_service {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let launch_agents_dir = PathBuf::from(&home).join("Library/LaunchAgents");
+                    let _ = std::fs::create_dir_all(&launch_agents_dir);
+                    let plist_dest = launch_agents_dir.join("com.user.desktop-mcp-daemon.plist");
+                    let plist_src = include_str!("../launchd/com.user.desktop-mcp-daemon.plist");
+                    std::fs::write(&plist_dest, plist_src)?;
+                    println!("[✓] LaunchAgent installed to {:?}", plist_dest);
+                    println!("    To activate: launchctl load {:?}", plist_dest);
+                }
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                println!("[✓] Verifying Linux Wayland environment...");
+                if std::env::var("WAYLAND_DISPLAY").is_ok() {
+                    println!("[✓] Wayland compositor detected: {}", std::env::var("WAYLAND_DISPLAY").unwrap());
+                } else {
+                    println!("[!] Warning: WAYLAND_DISPLAY environment variable not set.");
+                }
+
+                if install_service {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let service_dir = PathBuf::from(&home).join(".config/systemd/user");
+                    let _ = std::fs::create_dir_all(&service_dir);
+                    let service_dest = service_dir.join("desktop-mcp-daemon.service");
+                    let service_src = include_str!("../systemd/desktop-mcp-daemon.service");
+                    std::fs::write(&service_dest, service_src)?;
+                    println!("[✓] Systemd user service installed to {:?}", service_dest);
+                    println!("    To activate: systemctl --user daemon-reload && systemctl --user enable --now desktop-mcp-daemon");
+                }
+            }
+
+            println!("\n[✓] Setup check complete. You can run the daemon with:\n    desktop-mcp-daemon run\n");
         }
         Commands::InitConfig { path } => {
             let template = include_str!("../config.example.toml");
