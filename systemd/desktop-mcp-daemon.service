@@ -1,0 +1,17 @@
+[Unit]
+Description=Native Desktop Computer Use MCP Daemon (CUMD)
+PartOf=graphical-session.target
+After=graphical-session.target network.target
+
+[Service]
+Type=simple
+ExecStartPre=+/usr/local/bin/desktop-mcp-firewall.sh open
+ExecStart=/usr/local/bin/desktop-mcp-daemon run --config %h/.config/desktop-mcp-daemon/config.toml
+ExecStopPost=+/usr/local/bin/desktop-mcp-firewall.sh close
+Restart=on-failure
+RestartSec=5s
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_CURRENT_DESKTOP=KDE
+
+[Install]
+WantedBy=graphical-session.target

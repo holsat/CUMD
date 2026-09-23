@@ -1,0 +1,60 @@
+[server]
+# Transports: "stdio", "unix_socket", or "network"
+transport = "stdio"
+
+[server.unix_socket]
+path = "/tmp/desktop-mcp.sock"
+chmod = "0600"
+
+[server.network]
+interface = "127.0.0.1"
+port = 8443
+protocol = "sse"
+auth_token = "replace-with-secure-token"
+enable_tls = false
+
+[security]
+# Mode: "allowlist" (strict security) or "blocklist" (permissive with exceptions)
+mode = "allowlist"
+enforce_focus_lock = true
+
+# Whitelist of allowed application identifiers
+allowed_apps = [
+    "com.apple.calculator",
+    "Calculator",
+    "com.microsoft.Word",
+    "Microsoft Word",
+    "org.libreoffice.LibreOffice",
+    "LibreOffice",
+    "com.apple.Pages",
+    "Pages",
+    "com.apple.TextEdit",
+    "TextEdit",
+    "kcalc",
+    "gnome-calculator",
+    "org.kde.kcalc",
+    "org.gnome.Calculator",
+    "libreoffice-writer",
+    "onlyoffice-desktopeditors"
+]
+
+# Blacklist of forbidden applications (strictly blocked from agent interaction)
+blocked_apps = [
+    "com.apple.Terminal",
+    "Terminal",
+    "com.googlecode.iterm2",
+    "iTerm2",
+    "org.gnome.Terminal",
+    "com.1password.1password",
+    "1Password",
+    "org.keepassxc.keepassxc",
+    "com.apple.keychainaccess",
+    "Keychain Access",
+    "com.google.Chrome",
+    "com.apple.Safari"
+]
+
+[privacy]
+# If true, screenshots are strictly isolated/cropped to the active application window
+isolate_window_capture = true
+mask_sensitive_text_fields = true
