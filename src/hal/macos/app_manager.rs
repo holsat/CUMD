@@ -22,17 +22,6 @@ pub fn launch_or_activate_app(app_identifier: &str) -> Result<(), DriverError> {
         std::thread::sleep(std::time::Duration::from_millis(250));
         if let Ok(front) = get_frontmost_app_name() {
             if front.to_lowercase().contains(&target_lower) || target_lower.contains(&front.to_lowercase()) {
-                // If Microsoft Word, ensure a document window is open
-                if target_lower.contains("word") {
-                    let doc_check = r#"
-                        tell application "Microsoft Word"
-                            if (count of documents) = 0 then
-                                make new document
-                            end if
-                        end tell
-                    "#;
-                    let _ = Command::new("osascript").args(["-e", doc_check]).status();
-                }
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 return Ok(());
             }
