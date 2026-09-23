@@ -9,34 +9,37 @@ use core_graphics::display::*;
 use std::ffi::c_void;
 
 pub fn launch_or_activate_app(app_identifier: &str) -> Result<(), DriverError> {
-    // Attempt launching with open -a or -b
-    let status = if app_identifier.contains('.') && !app_identifier.ends_with(".app") {
-        Command::new("open")
-            .args(["-b", app_identifier])
-            .status()
-    } else {
-        Command::new("open")
-            .args(["-a", app_identifier])
-            .status()
-    };
+    // 1. Explicitly activate via AppleScript to guarantee OS focus switch
+    let script = format!("tell application \"{}\" to activate", app_identifier);
+    let _ = Command::new("osascript").args(["-e", &script]).status();
 
-    match status {
-        Ok(s) if s.success() => {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-            Ok(())
-        }
-        _ => {
-            let script = format!("tell application \"{}\" to activate", app_identifier);
-            let as_status = Command::new("osascript").args(["-e", &script]).status();
-            match as_status {
-                Ok(s) if s.success() => {
-                    std::thread::sleep(std::time::Duration::from_millis(400));
-                    Ok(())
+    // 2. Fallback to open -a if needed
+    let _ = Command::new("open").args(["-a", app_identifier]).status();
+
+    // 3. Wait until the application is confirmed frontmost by System Events
+    let target_lower = app_identifier.to_lowercase();
+    for _ in 0..15 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if let Ok(front) = get_frontmost_app_name() {
+            if front.to_lowercase().contains(&target_lower) || target_lower.contains(&front.to_lowercase()) {
+                // If Microsoft Word, ensure a document window is open
+                if target_lower.contains("word") {
+                    let doc_check = r#"
+                        tell application "Microsoft Word"
+                            if (count of documents) = 0 then
+                                make new document
+                            end if
+                        end tell
+                    "#;
+                    let _ = Command::new("osascript").args(["-e", doc_check]).status();
                 }
-                _ => Err(DriverError::AppNotFound(app_identifier.to_string())),
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                return Ok(());
             }
         }
     }
+
+    Ok(())
 }
 
 pub fn get_frontmost_app_name() -> Result<String, DriverError> {

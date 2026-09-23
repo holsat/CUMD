@@ -103,7 +103,7 @@ pub fn execute_keyboard_action(
     match action {
         KeyAction::Type => {
             if let Some(t) = text {
-                type_text_quartz(t)?;
+                type_text_smart(t)?;
             }
         }
         KeyAction::Hotkey | KeyAction::PressKey => {
@@ -113,6 +113,35 @@ pub fn execute_keyboard_action(
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn type_text_smart(text: &str) -> Result<(), DriverError> {
+    // For long paragraphs or multi-line text, use pasteboard + Cmd+V for 100% fidelity
+    if text.len() > 30 || text.contains('\n') {
+        paste_text(text)
+    } else {
+        type_text_quartz(text)
+    }
+}
+
+fn paste_text(text: &str) -> Result<(), DriverError> {
+    use std::io::Write;
+    let mut child = Command::new("pbcopy")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| DriverError::InputFailed(format!("Failed to spawn pbcopy: {}", e)))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes())
+            .map_err(|e| DriverError::InputFailed(format!("Failed to write to pbcopy: {}", e)))?;
+    }
+    child.wait()
+        .map_err(|e| DriverError::InputFailed(format!("pbcopy failed: {}", e)))?;
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    press_key_quartz("v", &["cmd".to_string()])?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
     Ok(())
 }
 
